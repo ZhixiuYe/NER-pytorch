@@ -1,8 +1,8 @@
-#2 reference:<br />
+## reference:<br />
 
    paper:<br />
            Neural Architectures for Named Entity Recognition<br />
    code:<br />
            https://github.com/glample/tagger<br />
-#2 usage:
+## usage:
    python train.py<br />
