@@ -6,3 +6,7 @@
            https://github.com/glample/tagger<br />
 ## usage:
    python train.py<br />
+
+## performance
+
+   f1 91.00%
