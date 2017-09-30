@@ -61,10 +61,10 @@ class BiLSTM_CRF(nn.Module):
 
         self.dropout = nn.Dropout(0.5)
         if self.n_cap and self.cap_embedding_dim:
-            self.lstm = nn.LSTM(embedding_dim+char_embedding_dim*2+cap_embedding_dim, hidden_dim,
-                            num_layers=1, bidirectional=True)
+            self.lstm = nn.LSTM(embedding_dim+char_lstm_dim*2+cap_embedding_dim, hidden_dim,
+                                num_layers=1, bidirectional=True)
         else:
-            self.lstm = nn.LSTM(embedding_dim + char_embedding_dim * 2, hidden_dim,
+            self.lstm = nn.LSTM(embedding_dim+char_lstm_dim*2, hidden_dim,
                                 num_layers=1, bidirectional=True)
         self.h2_h1 = nn.Linear(hidden_dim*2, hidden_dim)
         self.tanh = nn.Tanh()
