@@ -23,7 +23,6 @@ from loader import word_mapping, char_mapping, tag_mapping
 from loader import update_tag_scheme, prepare_dataset
 from model import BiLSTM_CRF
 from loader import augment_with_pretrained
-
 t = time.time()
 models_path = "models/"
 
@@ -104,7 +103,6 @@ optparser.add_option(
     "-D", "--dropout", default="0.5",
     type='float', help="Droupout on the input (0 = no dropout)"
 )
-
 optparser.add_option(
     "-r", "--reload", default="0",
     type='int', help="Reload the last saved model"
@@ -262,7 +260,8 @@ model = BiLSTM_CRF(len(word_to_id),
                    parameters['word_lstm_dim'],
                    use_gpu=use_gpu,
                    char_to_ix=char_to_id,
-                   pre_word_embeds=word_embeds)
+                   pre_word_embeds=word_embeds,
+                   use_crf=parameters['crf'])
                    # n_cap=4,
                    # cap_embedding_dim=10)
 if parameters['reload']:
@@ -353,7 +352,7 @@ def evaluating(model, datas, best_F):
     return best_F, new_F, save
 
 model.train(True)
-for epoch in range(1, 200):
+for epoch in range(1, 10001):
     for i, index in enumerate(np.random.permutation(len(train_data))):
         tr = time.time()
         count += 1
@@ -392,6 +391,9 @@ for epoch in range(1, 200):
             neg_log_likelihood = model.neg_log_likelihood(sentence_in, targets, chars2_mask, caps, chars2_length, d)
         loss += neg_log_likelihood.data[0] / len(data['words'])
         neg_log_likelihood.backward()
+        # print('model.word_embeds.weight.grad: ', model.word_embeds.weight.grad)
+        # assert model.word_embeds.weight.grad == Variable(torch.zeros(28985, 100))
+        # assert False
         torch.nn.utils.clip_grad_norm(model.parameters(), 5.0)
         optimizer.step()
 
