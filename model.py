@@ -108,7 +108,7 @@ class BiLSTM_CRF(nn.Module):
             pad_start_tags = torch.cat([torch.LongTensor([self.tag_to_ix[START_TAG]]), tags])
             pad_stop_tags = torch.cat([tags, torch.LongTensor([self.tag_to_ix[STOP_TAG]])])
 
-        score = torch.sum(self.transitions[pad_stop_tags, pad_start_tags]) + torch.sum(feats.data[r, tags])
+        score = torch.sum(self.transitions[pad_stop_tags, pad_start_tags]) + torch.sum(feats[r, tags])
 
         return score
 
