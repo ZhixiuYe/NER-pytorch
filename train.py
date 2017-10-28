@@ -10,114 +10,68 @@ import codecs
 import sys
 import visdom
 import numpy as np
+import argparse
 import matplotlib.pyplot as plt
 from collections import OrderedDict
 
-
 from torch.autograd import Variable
-from __future__ import print_function
 from utils import eval_script, eval_temp
 from loader import word_mapping, char_mapping, tag_mapping
 from loader import update_tag_scheme, prepare_dataset
 from model import BiLSTM_CRF
 from loader import augment_with_pretrained
 t = time.time()
-models_path = "models/"
 
-optparser = optparse.OptionParser()
-optparser.add_option(
-    "-T", "--train", default="dataset/eng.train",
-    help="Train set location"
-)
-optparser.add_option(
-    "-d", "--dev", default="dataset/eng.testa",
-    help="Dev set location"
-)
-optparser.add_option(
-    "-t", "--test", default="dataset/eng.testb",
-    help="Test set location"
-)
-optparser.add_option(
-    '--test_train', default='dataset/eng.train54019',
-    help='test train'
-)
-optparser.add_option(
-    '--score', default='evaluation/temp/score.txt',
-    help='score file location'
-)
-optparser.add_option(
-    "-s", "--tag_scheme", default="iobes",
-    help="Tagging scheme (IOB or IOBES)"
-)
-optparser.add_option(
-    "-l", "--lower", default="0",
-    type='int', help="Lowercase words (this will not affect character inputs)"
-)
-optparser.add_option(
-    "-z", "--zeros", default="0",
-    type='int', help="Replace digits with 0"
-)
-optparser.add_option(
-    "-c", "--char_dim", default="25",
-    type='int', help="Char embedding dimension"
-)
-optparser.add_option(
-    "-C", "--char_lstm_dim", default="25",
-    type='int', help="Char LSTM hidden layer size"
-)
-optparser.add_option(
-    "-b", "--char_bidirect", default="1",
-    type='int', help="Use a bidirectional LSTM for chars"
-)
-optparser.add_option(
-    "-w", "--word_dim", default="100",
-    type='int', help="Token embedding dimension"
-)
-optparser.add_option(
-    "-W", "--word_lstm_dim", default="100",
-    type='int', help="Token LSTM hidden layer size"
-)
-optparser.add_option(
-    "-B", "--word_bidirect", default="1",
-    type='int', help="Use a bidirectional LSTM for words"
-)
-optparser.add_option(
-    "-p", "--pre_emb", default="models/glove.6B.100d.txt",
-    help="Location of pretrained embeddings"
-)
-optparser.add_option(
-    "-A", "--all_emb", default="0",
-    type='int', help="Load all embeddings"
-)
-optparser.add_option(
-    "-a", "--cap_dim", default="0",
-    type='int', help="Capitalization feature dimension (0 to disable)"
-)
-optparser.add_option(
-    "-f", "--crf", default="1",
-    type='int', help="Use CRF (0 to disable)"
-)
-optparser.add_option(
-    "-D", "--dropout", default="0.5",
-    type='float', help="Droupout on the input (0 = no dropout)"
-)
-optparser.add_option(
-    "-r", "--reload", default="0",
-    type='int', help="Reload the last saved model"
-)
-optparser.add_option(
-    "-g", '--use_gpu', default='1',
-    type='int', help='whether or not to ues gpu'
-)
-optparser.add_option(
-    '--loss', default='loss.txt',
-    help='loss file location'
-)
-optparser.add_option(
-    '--name', default='test',
-    help='model name'
-)
-opts = optparser.parse_args()[0]
+def arguments():
+    parser = argparse.ArgumentParser()
+    parser.add_argument('-T','--train', dest='train',
+        default='dataset/eng.train', help="Train set location")
+    parser.add_argument('-d','--dev', dest='dev',
+        default='dataset/eng.testa', help="Dev set location")
+    parser.add_argument('--score', dest='score',
+        default='evaluation/temp/score.txt', help='score file location')
+    parser.add_argument('-s','--tag_scheme', dest='tag_scheme',
+        default='iobes', help='Tagging scheme (IOB or IOBES)')
+    parser.add_argument('-l','--lower', dest='lower', type=int,
+        default=0, help='Lowercase words (this will not affect character inputs)')
+    parser.add_argument('-z','--zeros', dest='zeros', type=int,
+        default=0, help='Replace digits with 0')
+    parser.add_argument('-c','--char_dim', dest='char_dim', type=int,
+        default=25, help='Character embedding dimension')
+    parser.add_argument('-C','--char_lstm_dim', dest='char_lstm_dim', type=int,
+        default=25, help='Character LSTM hidden layer size')
+    parser.add_argument('-b','--char_bidirect', dest='char_bidirect', type=int,
+        default=1, help='Use a bidirectional LSTM for characters')
+    parser.add_argument('-w','--word_dim', dest='word_dim', type=int,
+        default=100, help='Token embedding dimension')
+    parser.add_argument('-W','--world_lstm_dim', dest='world_lstm_dim',
+        default=100, help='Token LSTM hidden layer size')
+    parser.add_argument('-B','--word_bidirect', dest='word_bidirect', type=int,
+        default=1, help='Use a bidrectional LSTM for words')
+    parser.add_argument('-p','--pre_emb', dest='pre_emb',
+        default='models/glove.6B.100d.txt', help='Location of pretrained embeddings')
+    parser.add_argument('-A','--all_emb', dest='all_emb', type=int,
+        default=0, help='Load all embeddings')
+    parser.add_argument('-a','--cap_dim', dest='cap_dim', type=int,
+        default=0, help='Capitalization feature dimension(0 to disable')
+    parser.add_argument('-f','--crf', dest='crf', type=int,
+        default=1, help='Use CRF (0 to disable)')
+    parser.add_argument('-D','--dropout', dest='dropout', type=float,
+        default=0.5, help='Dropout on the input (0 = no dropout)')
+    parser.add_argument('-r','--reload', dest='reload', type=int,
+        default=0, help='Reload the last saved model')
+    parser.add_argument('-g','--use_gpu', dest='use_gpu', type=int,
+        default=0, help='Flag to use gpu')
+    parser.add_argument('--loss', dest='loss', type=str,
+        default='loss.txt', help='Loss file location')
+    parser.add_argument('--name', dest='name', type=str,
+        default='test', help='Model name')
+
+    return parser.parse_args()
+
+
+models_path = "models/"
+opts = arguments()
 
 parameters = OrderedDict()
 parameters['tag_scheme'] = opts.tag_scheme
@@ -384,9 +338,11 @@ for epoch in range(1, 10001):
         caps = Variable(torch.LongTensor(data['caps']))
         chars2_mask = Variable(torch.LongTensor(chars2_mask))
         if use_gpu:
-            neg_log_likelihood = model.neg_log_likelihood(sentence_in.cuda(), targets.cuda(), chars2_mask.cuda(), caps.cuda(), chars2_length, d)
+            neg_log_likelihood = model.neg_log_likelihood(sentence_in.cuda(),
+                targets.cuda(), chars2_mask.cuda(), caps.cuda(), chars2_length, d)
         else:
-            neg_log_likelihood = model.neg_log_likelihood(sentence_in, targets, chars2_mask, caps, chars2_length, d)
+            neg_log_likelihood = model.neg_log_likelihood(sentence_in, targets,
+                chars2_mask, caps, chars2_length, d)
         loss += neg_log_likelihood.data[0] / len(data['words'])
         neg_log_likelihood.backward()
         # print('model.word_embeds.weight.grad: ', model.word_embeds.weight.grad)
