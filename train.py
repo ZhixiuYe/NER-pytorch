@@ -1,23 +1,21 @@
-# coding=utf-8
-from __future__ import print_function
 import os
-import numpy as np
 import optparse
 import itertools
-from collections import OrderedDict
-from utils import create_input
 import loader
 import torch
 import time
 import re
 import cPickle
-import copy
-from torch.autograd import Variable
-import matplotlib.pyplot as plt
 import codecs
 import sys
 import visdom
+import numpy as np
+import matplotlib.pyplot as plt
+from collections import OrderedDict
 
+
+from torch.autograd import Variable
+from __future__ import print_function
 from utils import eval_script, eval_temp
 from loader import word_mapping, char_mapping, tag_mapping
 from loader import update_tag_scheme, prepare_dataset
