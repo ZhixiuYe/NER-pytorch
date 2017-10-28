@@ -15,7 +15,7 @@ def get_name(parameters):
     """
     Generate a model name from its parameters.
     """
-    l = []
+    l = []t
     for k, v in parameters.items():
         if type(v) is str and "/" in v:
             l.append((k, v[::-1][:v[::-1].index('/')][::-1]))
