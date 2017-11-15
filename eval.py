@@ -23,7 +23,7 @@ optparser.add_option(
     help='score file location'
 )
 optparser.add_option(
-    "-f", "--crf", default="1",
+    "-f", "--crf", default="0",
     type='int', help="Use CRF (0 to disable)"
 )
 optparser.add_option(
@@ -41,6 +41,10 @@ optparser.add_option(
 optparser.add_option(
     '--map_path', default='models/mapping.pkl',
     help='model path'
+)
+optparser.add_option(
+    '--char_mode', choices=['CNN', 'LSTM'], default='CNN',
+    help='char_CNN or char_LSTM'
 )
 
 opts = optparser.parse_args()[0]
@@ -102,7 +106,7 @@ model.eval()
 #             l = 1
 #     return maxl
 
-def eval(model, datas):
+def eval(model, datas, maxl=1):
     prediction = []
     confusion_matrix = torch.zeros((len(tag_to_id) - 2, len(tag_to_id) - 2))
     for data in datas:
@@ -113,23 +117,33 @@ def eval(model, datas):
         words = data['str_words']
         chars2 = data['chars']
         caps = data['caps']
-        chars2_sorted = sorted(chars2, key=lambda p: len(p), reverse=True)
-        d = {}
-        for i, ci in enumerate(chars2):
-            for j, cj in enumerate(chars2_sorted):
-                if ci == cj:
-                    d[j] = i
-                    continue
-        chars2_length = [len(c) for c in chars2_sorted]
-        char_maxl = max(chars2_length)
-        chars2_mask = np.zeros((len(chars2_sorted), char_maxl), dtype='int')
-        for i, c in enumerate(chars2_sorted):
-            chars2_mask[i, :chars2_length[i]] = c
 
-        chars2_mask = Variable(torch.LongTensor(chars2_mask))
+        if parameters['char_mode'] == 'LSTM':
+            chars2_sorted = sorted(chars2, key=lambda p: len(p), reverse=True)
+            d = {}
+            for i, ci in enumerate(chars2):
+                for j, cj in enumerate(chars2_sorted):
+                    if ci == cj:
+                        d[j] = i
+                        continue
+            chars2_length = [len(c) for c in chars2_sorted]
+            char_maxl = max(chars2_length)
+            chars2_mask = np.zeros((len(chars2_sorted), char_maxl), dtype='int')
+            for i, c in enumerate(chars2_sorted):
+                chars2_mask[i, :chars2_length[i]] = c
+            chars2_mask = Variable(torch.LongTensor(chars2_mask))
+
+        if parameters['char_mode'] == 'CNN':
+            d = {}
+            chars2_length = [len(c) for c in chars2]
+            char_maxl = max(chars2_length)
+            chars2_mask = np.zeros((len(chars2_length), char_maxl), dtype='int')
+            for i, c in enumerate(chars2):
+                chars2_mask[i, :chars2_length[i]] = c
+            chars2_mask = Variable(torch.LongTensor(chars2_mask))
+
         dwords = Variable(torch.LongTensor(data['words']))
         dcaps = Variable(torch.LongTensor(caps))
-
         if use_gpu:
             val, out = model(dwords.cuda(), chars2_mask.cuda(), dcaps.cuda(),chars2_length, d)
         else:
@@ -164,11 +178,10 @@ def eval(model, datas):
         ))
 
 # for l in range(1, 6):
-#     for i in range(10):
-#         eval(model, test_data, l)
-#         print()
-#     print()
-
-eval(model, test_data)
+#     print('maxl=', l)
+#     eval(model, test_data, l)
+#     # print()
+# # for i in range(10):
+# #     eval(model, test_data, 100)
 
 print(time.time() - t)

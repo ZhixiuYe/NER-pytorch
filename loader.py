@@ -71,12 +71,15 @@ def word_mapping(sentences, lower):
     """
     words = [[x[0].lower() if lower else x[0] for x in s] for s in sentences]
     dico = create_dico(words)
+
     dico['<PAD>'] = 10000001
     dico['<UNK>'] = 10000000
+    dico = {k:v for k,v in dico.items() if v>=3}
     word_to_id, id_to_word = create_mapping(dico)
-    print "Found %i unique words (%i in total)" % (
+
+    print("Found %i unique words (%i in total)" % (
         len(dico), sum(len(x) for x in words)
-    )
+    ))
     return dico, word_to_id, id_to_word
 
 
@@ -142,7 +145,7 @@ def prepare_sentence(str_words, word_to_id, char_to_id, lower=False):
     }
 
 
-def prepare_dataset(sentences, word_to_id, char_to_id, tag_to_id, lower=False):
+def prepare_dataset(sentences, word_to_id, char_to_id, tag_to_id, lower=True):
     """
     Prepare the dataset. Return a list of lists of dictionaries containing:
         - word indexes

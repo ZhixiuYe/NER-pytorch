@@ -1,7 +1,7 @@
 import torch
 import torch.autograd as autograd
-import torch.nn as nn
 from torch.autograd import Variable
+from utils import *
 
 START_TAG = '<START>'
 STOP_TAG = '<STOP>'
@@ -34,7 +34,7 @@ class BiLSTM_CRF(nn.Module):
 
     def __init__(self, vocab_size, tag_to_ix, embedding_dim, hidden_dim, char_lstm_dim=25,
                  char_to_ix=None, pre_word_embeds=None, char_embedding_dim=25, use_gpu=False,
-                 n_cap=None, cap_embedding_dim=None, use_crf=True):
+                 n_cap=None, cap_embedding_dim=None, use_crf=True, char_mode='CNN'):
         super(BiLSTM_CRF, self).__init__()
         self.use_gpu = use_gpu
         self.embedding_dim = embedding_dim
@@ -45,13 +45,21 @@ class BiLSTM_CRF(nn.Module):
         self.cap_embedding_dim = cap_embedding_dim
         self.use_crf = use_crf
         self.tagset_size = len(tag_to_ix)
+        self.out_channels = char_lstm_dim
+        self.char_mode = char_mode
         if self.n_cap and self.cap_embedding_dim:
             self.cap_embeds = nn.Embedding(self.n_cap, self.cap_embedding_dim)
+            init_embedding(self.cap_embeds.weight)
 
         if char_embedding_dim is not None:
             self.char_lstm_dim = char_lstm_dim
             self.char_embeds = nn.Embedding(len(char_to_ix), char_embedding_dim)
-            self.char_lstm = nn.LSTM(char_embedding_dim, char_lstm_dim, num_layers=1, bidirectional=True)
+            init_embedding(self.char_embeds.weight)
+            if self.char_mode == 'LSTM':
+                self.char_lstm = nn.LSTM(char_embedding_dim, char_lstm_dim, num_layers=1, bidirectional=True)
+                init_lstm(self.char_lstm)
+            if self.char_mode == 'CNN':
+                self.char_cnn3 = nn.Conv2d(in_channels=1, out_channels=self.out_channels, kernel_size=(3, char_embedding_dim), padding=(2,0))
 
         self.word_embeds = nn.Embedding(vocab_size, embedding_dim)
         if pre_word_embeds is not None:
@@ -62,39 +70,65 @@ class BiLSTM_CRF(nn.Module):
 
         self.dropout = nn.Dropout(0.5)
         if self.n_cap and self.cap_embedding_dim:
-            self.lstm = nn.LSTM(embedding_dim+char_lstm_dim*2+cap_embedding_dim, hidden_dim,
-                                num_layers=1, bidirectional=True)
+            if self.char_mode == 'LSTM':
+                self.lstm = nn.LSTM(embedding_dim+char_lstm_dim*2+cap_embedding_dim, hidden_dim, bidirectional=True)
+            if self.char_mode == 'CNN':
+                self.lstm = nn.LSTM(embedding_dim+self.out_channels+cap_embedding_dim, hidden_dim, bidirectional=True)
         else:
-            self.lstm = nn.LSTM(embedding_dim+char_lstm_dim*2, hidden_dim,
-                                num_layers=1, bidirectional=True)
+            if self.char_mode == 'LSTM':
+                self.lstm = nn.LSTM(embedding_dim+char_lstm_dim*2, hidden_dim, bidirectional=True)
+            if self.char_mode == 'CNN':
+                self.lstm = nn.LSTM(embedding_dim+self.out_channels, hidden_dim, bidirectional=True)
+        init_lstm(self.lstm)
+        self.hw_trans = nn.Linear(self.out_channels, self.out_channels)
+        self.hw_gate = nn.Linear(self.out_channels, self.out_channels)
         self.h2_h1 = nn.Linear(hidden_dim*2, hidden_dim)
         self.tanh = nn.Tanh()
         self.hidden2tag = nn.Linear(hidden_dim, self.tagset_size)
+        init_linear(self.h2_h1)
+        init_linear(self.hidden2tag)
+        init_linear(self.hw_gate)
+        init_linear(self.hw_trans)
 
-        # trans is also a score tensor, not a probability
         if self.use_crf:
             self.transitions = nn.Parameter(
-                torch.randn(self.tagset_size, self.tagset_size))
+                torch.zeros(self.tagset_size, self.tagset_size))
             self.transitions.data[tag_to_ix[START_TAG], :] = -10000
             self.transitions.data[:, tag_to_ix[STOP_TAG]] = -10000
 
-    def init_char_hidden(self, batchsize):
-
-        if self.use_gpu:
-            return (autograd.Variable(torch.randn(2, batchsize, self.char_lstm_dim)).cuda(),
-                    autograd.Variable(torch.randn(2, batchsize, self.char_lstm_dim)).cuda())
+    def init_lstm_hidden(self, dim, bidirection=True, batchsize=1):
+        l = 1 + bidirection
+        if self.training:
+            if self.use_gpu:
+                return (Variable(torch.randn(l, batchsize, dim)).cuda(),
+                        Variable(torch.randn(l, batchsize, dim)).cuda())
+            else:
+                return (Variable(torch.randn(l, batchsize, dim)),
+                        Variable(torch.randn(l, batchsize, dim)))
         else:
-            return (autograd.Variable(torch.randn(2, batchsize, self.char_lstm_dim)),
-                    autograd.Variable(torch.randn(2, batchsize, self.char_lstm_dim)))
+            if self.use_gpu:
+                return (Variable(torch.zeros(l, batchsize, dim)).cuda(),
+                        Variable(torch.zeros(l, batchsize, dim)).cuda())
+            else:
+                return (Variable(torch.zeros(l, batchsize, dim)),
+                        Variable(torch.zeros(l, batchsize, dim)))
 
 
-    def init_hidden(self):
-        if self.use_gpu:
-            return (autograd.Variable(torch.randn(2, 1, self.hidden_dim)).cuda(),
-                    autograd.Variable(torch.randn(2, 1, self.hidden_dim)).cuda())
-        else:
-            return (autograd.Variable(torch.randn(2, 1, self.hidden_dim)),
-                    autograd.Variable(torch.randn(2, 1, self.hidden_dim)))
+    # def init_hidden(self):
+    #     if self.training:
+    #         if self.use_gpu:
+    #             return (autograd.Variable(torch.randn(2, 1, self.hidden_dim)).cuda(),
+    #                     autograd.Variable(torch.randn(2, 1, self.hidden_dim)).cuda())
+    #         else:
+    #             return (autograd.Variable(torch.randn(2, 1, self.hidden_dim)),
+    #                     autograd.Variable(torch.randn(2, 1, self.hidden_dim)))
+    #     else:
+    #         if self.use_gpu:
+    #             return (autograd.Variable(torch.zeros(2, 1, self.hidden_dim)).cuda(),
+    #                     autograd.Variable(torch.zeros(2, 1, self.hidden_dim)).cuda())
+    #         else:
+    #             return (autograd.Variable(torch.zeros(2, 1, self.hidden_dim)),
+    #                     autograd.Variable(torch.zeros(2, 1, self.hidden_dim)))
 
     def _score_sentence(self, feats, tags):
         # tags is ground_truth, a list of ints, length is len(sentence)
@@ -113,29 +147,41 @@ class BiLSTM_CRF(nn.Module):
         return score
 
     def _get_lstm_features(self, sentence, chars2, caps, chars2_length, d):
-        # sentence: a list of ints
-        # initialize lstm hidden state, h and c
-        self.hidden = self.init_hidden()
-        self.char_lstm_hidden = self.init_char_hidden(chars2.size(0))
 
-        chars_embeds = self.char_embeds(chars2).transpose(0, 1)
-        packed = torch.nn.utils.rnn.pack_padded_sequence(chars_embeds, chars2_length)
-        lstm_out, self.char_lstm_hidden = self.char_lstm(packed, self.char_lstm_hidden)
+        # # sentence: a list of ints
+        # # initialize lstm hidden state, h and c
+        # # self.hidden = self.init_hidden()
+        self.hidden = self.init_lstm_hidden(dim=self.hidden_dim, bidirection=True, batchsize=1)
 
-        # outputs: maxlength * len(sentence) * hiddensize
-        outputs, output_lengths = torch.nn.utils.rnn.pad_packed_sequence(lstm_out)
-        outputs = outputs.transpose(0, 1)
-        chars_embeds_temp = Variable(torch.FloatTensor(torch.zeros((outputs.size(0), outputs.size(2)))))
-        if self.use_gpu:
-            chars_embeds_temp = chars_embeds_temp.cuda()
-        for i, index in enumerate(output_lengths):
-            chars_embeds_temp[i] = outputs[i, index-1]
-        chars_embeds = chars_embeds_temp.clone()
-        for i in range(chars_embeds.size(0)):
-            chars_embeds[d[i]] = chars_embeds_temp[i]
+        if self.char_mode == 'LSTM':
+
+            self.char_lstm_hidden = self.init_lstm_hidden(dim=self.char_lstm_dim, bidirection=True, batchsize=chars2.size(0))
+            chars_embeds = self.char_embeds(chars2).transpose(0, 1)
+            packed = torch.nn.utils.rnn.pack_padded_sequence(chars_embeds, chars2_length)
+            lstm_out, self.char_lstm_hidden = self.char_lstm(packed, self.char_lstm_hidden)
+            outputs, output_lengths = torch.nn.utils.rnn.pad_packed_sequence(lstm_out)
+            outputs = outputs.transpose(0, 1)
+            chars_embeds_temp = Variable(torch.FloatTensor(torch.zeros((outputs.size(0), outputs.size(2)))))
+            if self.use_gpu:
+                chars_embeds_temp = chars_embeds_temp.cuda()
+            for i, index in enumerate(output_lengths):
+                chars_embeds_temp[i] = torch.cat((outputs[i, index-1, :self.char_lstm_dim], outputs[i, 0, self.char_lstm_dim:]))
+            chars_embeds = chars_embeds_temp.clone()
+            for i in range(chars_embeds.size(0)):
+                chars_embeds[d[i]] = chars_embeds_temp[i]
+
+        if self.char_mode == 'CNN':
+            chars_embeds = self.char_embeds(chars2).unsqueeze(1)
+            chars_cnn_out3 = self.char_cnn3(chars_embeds)
+            chars_embeds = nn.functional.max_pool2d(chars_cnn_out3,
+                                                 kernel_size=(chars_cnn_out3.size(2), 1)).view(chars_cnn_out3.size(0), self.out_channels)
+
+        # t = self.hw_gate(chars_embeds)
+        # g = nn.functional.sigmoid(t)
+        # h = nn.functional.relu(self.hw_trans(chars_embeds))
+        # chars_embeds = g * h + (1 - g) * chars_embeds
 
         embeds = self.word_embeds(sentence)
-
         if self.n_cap and self.cap_embedding_dim:
             cap_embedding = self.cap_embeds(caps)
 
@@ -146,7 +192,6 @@ class BiLSTM_CRF(nn.Module):
 
         embeds = embeds.unsqueeze(1)
         embeds = self.dropout(embeds)
-
         lstm_out, self.hidden = self.lstm(embeds, self.hidden)
         lstm_out = lstm_out.view(len(sentence), self.hidden_dim*2)
         lstm_out = self.h2_h1(lstm_out)
@@ -215,7 +260,6 @@ class BiLSTM_CRF(nn.Module):
 
         if self.use_crf:
             forward_score = self._forward_alg(feats)
-            # calculate the score of the ground_truth, in CRF
             gold_score = self._score_sentence(feats, tags)
             return forward_score - gold_score
         else:
