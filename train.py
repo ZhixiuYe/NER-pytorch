@@ -1,28 +1,19 @@
 # coding=utf-8
 from __future__ import print_function
-import os
-import numpy as np
 import optparse
 import itertools
 from collections import OrderedDict
-from utils import create_input
 import loader
 import torch
 import time
-import re
 import cPickle
-import copy
 from torch.autograd import Variable
 import matplotlib.pyplot as plt
-import codecs
 import sys
 import visdom
-
-from utils import eval_script, eval_temp
-from loader import word_mapping, char_mapping, tag_mapping
-from loader import update_tag_scheme, prepare_dataset
+from utils import *
+from loader import *
 from model import BiLSTM_CRF
-from loader import augment_with_pretrained
 t = time.time()
 models_path = "models/"
 
@@ -52,7 +43,7 @@ optparser.add_option(
     help="Tagging scheme (IOB or IOBES)"
 )
 optparser.add_option(
-    "-l", "--lower", default="0",
+    "-l", "--lower", default="1",
     type='int', help="Lowercase words (this will not affect character inputs)"
 )
 optparser.add_option(
@@ -76,7 +67,7 @@ optparser.add_option(
     type='int', help="Token embedding dimension"
 )
 optparser.add_option(
-    "-W", "--word_lstm_dim", default="100",
+    "-W", "--word_lstm_dim", default="200",
     type='int', help="Token LSTM hidden layer size"
 )
 optparser.add_option(
@@ -88,7 +79,7 @@ optparser.add_option(
     help="Location of pretrained embeddings"
 )
 optparser.add_option(
-    "-A", "--all_emb", default="0",
+    "-A", "--all_emb", default="1",
     type='int', help="Load all embeddings"
 )
 optparser.add_option(
@@ -119,6 +110,10 @@ optparser.add_option(
     '--name', default='test',
     help='model name'
 )
+optparser.add_option(
+    '--char_mode', choices=['CNN', 'LSTM'], default='CNN',
+    help='char_CNN or char_LSTM'
+)
 opts = optparser.parse_args()[0]
 
 parameters = OrderedDict()
@@ -138,6 +133,7 @@ parameters['crf'] = opts.crf == 1
 parameters['dropout'] = opts.dropout
 parameters['reload'] = opts.reload == 1
 parameters['name'] = opts.name
+parameters['char_mode'] = opts.char_mode
 
 parameters['use_gpu'] = opts.use_gpu == 1 and torch.cuda.is_available()
 use_gpu = parameters['use_gpu']
@@ -181,6 +177,7 @@ update_tag_scheme(test_sentences, tag_scheme)
 update_tag_scheme(test_train_sentences, tag_scheme)
 
 dico_words_train = word_mapping(train_sentences, lower)[0]
+
 dico_words, word_to_id, id_to_word = augment_with_pretrained(
         dico_words_train.copy(),
         parameters['pre_emb'],
@@ -188,13 +185,13 @@ dico_words, word_to_id, id_to_word = augment_with_pretrained(
             [[w[0] for w in s] for s in dev_sentences + test_sentences])
         ) if not parameters['all_emb'] else None
     )
+
 dico_chars, char_to_id, id_to_char = char_mapping(train_sentences)
 dico_tags, tag_to_id, id_to_tag = tag_mapping(train_sentences)
 
 train_data = prepare_dataset(
     train_sentences, word_to_id, char_to_id, tag_to_id, lower
 )
-
 dev_data = prepare_dataset(
     dev_sentences, word_to_id, char_to_id, tag_to_id, lower
 )
@@ -214,32 +211,15 @@ for i, line in enumerate(codecs.open(opts.pre_emb, 'r', 'utf-8')):
     if len(s) == parameters['word_dim'] + 1:
         all_word_embeds[s[0]] = np.array([float(i) for i in s[1:]])
 
-print(len(all_word_embeds))
-c_found = 0
-c_lower = 0
-c_zeros = 0
-word_embeds = np.random.uniform(-1, 1, (len(word_to_id), opts.word_dim))
+word_embeds = np.random.uniform(-np.sqrt(0.06), np.sqrt(0.06), (len(word_to_id), opts.word_dim))
 
 for w in word_to_id:
     if w in all_word_embeds:
         word_embeds[word_to_id[w]] = all_word_embeds[w]
-        c_found += 1
     elif w.lower() in all_word_embeds:
         word_embeds[word_to_id[w]] = all_word_embeds[w.lower()]
-        c_lower += 1
-    elif re.sub('\d', '0', w.lower()) in all_word_embeds:
-        word_embeds[word_to_id[w]] = all_word_embeds[re.sub('\d', '0', w.lower())]
-        c_zeros += 1
+
 print('Loaded %i pretrained embeddings.' % len(all_word_embeds))
-print(('%i / %i (%.4f%%) words have been initialized with '
-      'pretrained embeddings.') % (
-    c_found + c_lower + c_zeros, len(word_to_id),
-    100. * (c_found + c_lower + c_zeros) / len(word_to_id)
-))
-print(('%i found directly, %i after lowercasing, '
-      '%i after lowercasing + zero.') % (
-    c_found, c_lower, c_zeros
-))
 
 with open(mapping_file, 'wb') as f:
     mappings = {
@@ -251,33 +231,32 @@ with open(mapping_file, 'wb') as f:
     }
     cPickle.dump(mappings, f)
 
-singletons = set([word_to_id[k] for k, v
-                  in dico_words.items() if v == 1])
-
-model = BiLSTM_CRF(len(word_to_id),
-                   tag_to_id,
-                   parameters['word_dim'],
-                   parameters['word_lstm_dim'],
+print('word_to_id: ', len(word_to_id))
+model = BiLSTM_CRF(vocab_size=len(word_to_id),
+                   tag_to_ix=tag_to_id,
+                   embedding_dim=parameters['word_dim'],
+                   hidden_dim=parameters['word_lstm_dim'],
                    use_gpu=use_gpu,
                    char_to_ix=char_to_id,
                    pre_word_embeds=word_embeds,
-                   use_crf=parameters['crf'])
+                   use_crf=parameters['crf'],
+                   char_mode=parameters['char_mode'])
                    # n_cap=4,
                    # cap_embedding_dim=10)
 if parameters['reload']:
     model.load_state_dict(torch.load(model_name))
 if use_gpu:
     model.cuda()
-learning_rate = 0.005
-optimizer = torch.optim.SGD(model.parameters(), lr=learning_rate)
+learning_rate = 0.015
+optimizer = torch.optim.SGD(model.parameters(), lr=learning_rate, momentum=0.9)
 losses = []
 loss = 0.0
 best_dev_F = -1.0
 best_test_F = -1.0
 best_train_F = -1.0
 all_F = [[0, 0, 0]]
-plot_every = 1000
-eval_every = 20000
+plot_every = 10
+eval_every = 20
 count = 0
 vis = visdom.Visdom()
 sys.stdout.flush()
@@ -293,25 +272,35 @@ def evaluating(model, datas, best_F):
         words = data['str_words']
         chars2 = data['chars']
         caps = data['caps']
-        chars2_sorted = sorted(chars2, key=lambda p: len(p), reverse=True)
-        d = {}
-        for i, ci in enumerate(chars2):
-            for j, cj in enumerate(chars2_sorted):
-                if ci == cj:
-                    d[j] = i
-                    continue
-        chars2_length = [len(c) for c in chars2_sorted]
-        char_maxl = max(chars2_length)
-        chars2_mask = np.zeros((len(chars2_sorted), char_maxl), dtype='int')
-        for i, c in enumerate(chars2_sorted):
-            chars2_mask[i, :chars2_length[i]] = c
 
-        chars2_mask = Variable(torch.LongTensor(chars2_mask))
+        if parameters['char_mode'] == 'LSTM':
+            chars2_sorted = sorted(chars2, key=lambda p: len(p), reverse=True)
+            d = {}
+            for i, ci in enumerate(chars2):
+                for j, cj in enumerate(chars2_sorted):
+                    if ci == cj:
+                        d[j] = i
+                        continue
+            chars2_length = [len(c) for c in chars2_sorted]
+            char_maxl = max(chars2_length)
+            chars2_mask = np.zeros((len(chars2_sorted), char_maxl), dtype='int')
+            for i, c in enumerate(chars2_sorted):
+                chars2_mask[i, :chars2_length[i]] = c
+            chars2_mask = Variable(torch.LongTensor(chars2_mask))
+
+        if parameters['char_mode'] == 'CNN':
+            d = {}
+            chars2_length = [len(c) for c in chars2]
+            char_maxl = max(chars2_length)
+            chars2_mask = np.zeros((len(chars2_length), char_maxl), dtype='int')
+            for i, c in enumerate(chars2):
+                chars2_mask[i, :chars2_length[i]] = c
+            chars2_mask = Variable(torch.LongTensor(chars2_mask))
+
         dwords = Variable(torch.LongTensor(data['words']))
         dcaps = Variable(torch.LongTensor(caps))
-
         if use_gpu:
-            val, out = model(dwords.cuda(), chars2_mask.cuda(), dcaps.cuda(),chars2_length, d)
+            val, out = model(dwords.cuda(), chars2_mask.cuda(), dcaps.cuda(), chars2_length, d)
         else:
             val, out = model(dwords, chars2_mask, dcaps, chars2_length, d)
         predicted_id = out
@@ -359,41 +348,46 @@ for epoch in range(1, 10001):
         data = train_data[index]
         model.zero_grad()
 
-        sentence_in = []
-        for word in data['words']:
-            if word in singletons and np.random.uniform() < 0.5:
-                sentence_in.append(word_to_id['<UNK>'])
-            else:
-                sentence_in.append(word)
+        sentence_in = data['words']
         sentence_in = Variable(torch.LongTensor(sentence_in))
         tags = data['tags']
         chars2 = data['chars']
-        chars2_sorted = sorted(chars2, key=lambda p: len(p), reverse=True)
-        # for batch char
-        d = {}
-        for i, ci in enumerate(chars2):
-            for j, cj in enumerate(chars2_sorted):
-                if ci == cj:
-                    d[j] = i
-                    continue
-        chars2_length = [len(c) for c in chars2_sorted]
-        char_maxl = max(chars2_length)
-        chars2_mask = np.zeros((len(chars2_sorted), char_maxl), dtype='int')
-        for i, c in enumerate(chars2_sorted):
-            chars2_mask[i, :chars2_length[i]] = c
+
+        ######### char lstm
+        if parameters['char_mode'] == 'LSTM':
+            chars2_sorted = sorted(chars2, key=lambda p: len(p), reverse=True)
+            d = {}
+            for i, ci in enumerate(chars2):
+                for j, cj in enumerate(chars2_sorted):
+                    if ci == cj:
+                        d[j] = i
+                        continue
+            chars2_length = [len(c) for c in chars2_sorted]
+            char_maxl = max(chars2_length)
+            chars2_mask = np.zeros((len(chars2_sorted), char_maxl), dtype='int')
+            for i, c in enumerate(chars2_sorted):
+                chars2_mask[i, :chars2_length[i]] = c
+            chars2_mask = Variable(torch.LongTensor(chars2_mask))
+
+        # ######## char cnn
+        if parameters['char_mode'] == 'CNN':
+            d = {}
+            chars2_length = [len(c) for c in chars2]
+            char_maxl = max(chars2_length)
+            chars2_mask = np.zeros((len(chars2_length), char_maxl), dtype='int')
+            for i, c in enumerate(chars2):
+                chars2_mask[i, :chars2_length[i]] = c
+            chars2_mask = Variable(torch.LongTensor(chars2_mask))
+
 
         targets = torch.LongTensor(tags)
         caps = Variable(torch.LongTensor(data['caps']))
-        chars2_mask = Variable(torch.LongTensor(chars2_mask))
         if use_gpu:
             neg_log_likelihood = model.neg_log_likelihood(sentence_in.cuda(), targets.cuda(), chars2_mask.cuda(), caps.cuda(), chars2_length, d)
         else:
             neg_log_likelihood = model.neg_log_likelihood(sentence_in, targets, chars2_mask, caps, chars2_length, d)
         loss += neg_log_likelihood.data[0] / len(data['words'])
         neg_log_likelihood.backward()
-        # print('model.word_embeds.weight.grad: ', model.word_embeds.weight.grad)
-        # assert model.word_embeds.weight.grad == Variable(torch.zeros(28985, 100))
-        # assert False
         torch.nn.utils.clip_grad_norm(model.parameters(), 5.0)
         optimizer.step()
 
@@ -417,7 +411,7 @@ for epoch in range(1, 10001):
             best_train_F, new_train_F, _ = evaluating(model, test_train_data, best_train_F)
             best_dev_F, new_dev_F, save = evaluating(model, dev_data, best_dev_F)
             if save:
-                torch.save(model.state_dict(), model_name)
+                torch.save(model, model_name)
             best_test_F, new_test_F, _ = evaluating(model, test_data, best_test_F)
             sys.stdout.flush()
 
@@ -427,6 +421,10 @@ for epoch in range(1, 10001):
                  X=np.array([eval_every*i for i in range(len(all_F))]),
                  opts={'title': Fwin, 'legend': ['train', 'dev', 'test']})
             model.train(True)
+
+        if count % len(train_data) == 0:
+            adjust_learning_rate(optimizer, lr=learning_rate/(1+0.05*count/len(train_data)))
+
 
 print(time.time() - t)
 
