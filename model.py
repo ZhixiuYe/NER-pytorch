@@ -47,6 +47,9 @@ class BiLSTM_CRF(nn.Module):
         self.tagset_size = len(tag_to_ix)
         self.out_channels = char_lstm_dim
         self.char_mode = char_mode
+
+        print('char_mode: %s, out_channels: %d, hidden_dim: %d, ' % (char_mode, char_lstm_dim, hidden_dim))
+
         if self.n_cap and self.cap_embedding_dim:
             self.cap_embeds = nn.Embedding(self.n_cap, self.cap_embedding_dim)
             init_embedding(self.cap_embeds.weight)
@@ -84,7 +87,7 @@ class BiLSTM_CRF(nn.Module):
         self.hw_gate = nn.Linear(self.out_channels, self.out_channels)
         self.h2_h1 = nn.Linear(hidden_dim*2, hidden_dim)
         self.tanh = nn.Tanh()
-        self.hidden2tag = nn.Linear(hidden_dim, self.tagset_size)
+        self.hidden2tag = nn.Linear(hidden_dim*2, self.tagset_size)
         init_linear(self.h2_h1)
         init_linear(self.hidden2tag)
         init_linear(self.hw_gate)
@@ -95,40 +98,6 @@ class BiLSTM_CRF(nn.Module):
                 torch.zeros(self.tagset_size, self.tagset_size))
             self.transitions.data[tag_to_ix[START_TAG], :] = -10000
             self.transitions.data[:, tag_to_ix[STOP_TAG]] = -10000
-
-    def init_lstm_hidden(self, dim, bidirection=True, batchsize=1):
-        l = 1 + bidirection
-        if self.training:
-            if self.use_gpu:
-                return (Variable(torch.randn(l, batchsize, dim)).cuda(),
-                        Variable(torch.randn(l, batchsize, dim)).cuda())
-            else:
-                return (Variable(torch.randn(l, batchsize, dim)),
-                        Variable(torch.randn(l, batchsize, dim)))
-        else:
-            if self.use_gpu:
-                return (Variable(torch.zeros(l, batchsize, dim)).cuda(),
-                        Variable(torch.zeros(l, batchsize, dim)).cuda())
-            else:
-                return (Variable(torch.zeros(l, batchsize, dim)),
-                        Variable(torch.zeros(l, batchsize, dim)))
-
-
-    # def init_hidden(self):
-    #     if self.training:
-    #         if self.use_gpu:
-    #             return (autograd.Variable(torch.randn(2, 1, self.hidden_dim)).cuda(),
-    #                     autograd.Variable(torch.randn(2, 1, self.hidden_dim)).cuda())
-    #         else:
-    #             return (autograd.Variable(torch.randn(2, 1, self.hidden_dim)),
-    #                     autograd.Variable(torch.randn(2, 1, self.hidden_dim)))
-    #     else:
-    #         if self.use_gpu:
-    #             return (autograd.Variable(torch.zeros(2, 1, self.hidden_dim)).cuda(),
-    #                     autograd.Variable(torch.zeros(2, 1, self.hidden_dim)).cuda())
-    #         else:
-    #             return (autograd.Variable(torch.zeros(2, 1, self.hidden_dim)),
-    #                     autograd.Variable(torch.zeros(2, 1, self.hidden_dim)))
 
     def _score_sentence(self, feats, tags):
         # tags is ground_truth, a list of ints, length is len(sentence)
@@ -148,17 +117,11 @@ class BiLSTM_CRF(nn.Module):
 
     def _get_lstm_features(self, sentence, chars2, caps, chars2_length, d):
 
-        # # sentence: a list of ints
-        # # initialize lstm hidden state, h and c
-        # # self.hidden = self.init_hidden()
-        self.hidden = self.init_lstm_hidden(dim=self.hidden_dim, bidirection=True, batchsize=1)
-
         if self.char_mode == 'LSTM':
-
-            self.char_lstm_hidden = self.init_lstm_hidden(dim=self.char_lstm_dim, bidirection=True, batchsize=chars2.size(0))
+            # self.char_lstm_hidden = self.init_lstm_hidden(dim=self.char_lstm_dim, bidirection=True, batchsize=chars2.size(0))
             chars_embeds = self.char_embeds(chars2).transpose(0, 1)
             packed = torch.nn.utils.rnn.pack_padded_sequence(chars_embeds, chars2_length)
-            lstm_out, self.char_lstm_hidden = self.char_lstm(packed, self.char_lstm_hidden)
+            lstm_out, _ = self.char_lstm(packed)
             outputs, output_lengths = torch.nn.utils.rnn.pad_packed_sequence(lstm_out)
             outputs = outputs.transpose(0, 1)
             chars_embeds_temp = Variable(torch.FloatTensor(torch.zeros((outputs.size(0), outputs.size(2)))))
@@ -192,10 +155,9 @@ class BiLSTM_CRF(nn.Module):
 
         embeds = embeds.unsqueeze(1)
         embeds = self.dropout(embeds)
-        lstm_out, self.hidden = self.lstm(embeds, self.hidden)
+        lstm_out, _ = self.lstm(embeds)
         lstm_out = lstm_out.view(len(sentence), self.hidden_dim*2)
-        lstm_out = self.h2_h1(lstm_out)
-        lstm_out = self.tanh(lstm_out)
+        lstm_out = self.dropout(lstm_out)
         lstm_feats = self.hidden2tag(lstm_out)
         return lstm_feats
 
