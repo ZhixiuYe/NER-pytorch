@@ -1,3 +1,4 @@
+from __future__ import print_function, division
 import os
 import re
 import codecs
@@ -92,7 +93,7 @@ def char_mapping(sentences):
     dico['<PAD>'] = 10000000
     # dico[';'] = 0
     char_to_id, id_to_char = create_mapping(dico)
-    print "Found %i unique characters" % len(dico)
+    print("Found %i unique characters" % len(dico))
     return dico, char_to_id, id_to_char
 
 
@@ -105,7 +106,7 @@ def tag_mapping(sentences):
     dico[model.START_TAG] = -1
     dico[model.STOP_TAG] = -2
     tag_to_id, id_to_tag = create_mapping(dico)
-    print "Found %i unique named entity tags" % len(dico)
+    print("Found %i unique named entity tags" % len(dico))
     return dico, tag_to_id, id_to_tag
 
 
@@ -180,7 +181,7 @@ def augment_with_pretrained(dictionary, ext_emb_path, words):
     to the dictionary, otherwise, we only add the words that are given by
     `words` (typically the words in the development and test sets.)
     """
-    print 'Loading pretrained embeddings from %s...' % ext_emb_path
+    print('Loading pretrained embeddings from %s...' % ext_emb_path)
     assert os.path.isfile(ext_emb_path)
 
     # Load pretrained embeddings from file
