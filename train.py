@@ -359,7 +359,7 @@ for epoch in range(1, 10001):
             d = {}
             for i, ci in enumerate(chars2):
                 for j, cj in enumerate(chars2_sorted):
-                    if ci == cj:
+                    if ci == cj and not j in d and not i in d.values():
                         d[j] = i
                         continue
             chars2_length = [len(c) for c in chars2_sorted]
