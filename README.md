@@ -1,3 +1,8 @@
+# attention:
+
+## This package has stopped updating, please see our new resposity [HSCRF](https://github.com/ZhixiuYe/HSCRF-pytorch)
+
+
 ## reference:<br />
 
    paper:<br />
