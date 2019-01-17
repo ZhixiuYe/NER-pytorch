@@ -8,9 +8,9 @@ import torch
 import time
 import cPickle
 from torch.autograd import Variable
-import matplotlib.pyplot as plt
+# import matplotlib.pyplot as plt
 import sys
-import visdom
+# import visdom
 from utils import *
 from loader import *
 from model import BiLSTM_CRF
@@ -75,7 +75,7 @@ optparser.add_option(
     type='int', help="Use a bidirectional LSTM for words"
 )
 optparser.add_option(
-    "-p", "--pre_emb", default="models/glove.6B.100d.txt",
+    "-p", "--pre_emb", default="/data/nfsdata/nlp/embeddings/glove/glove.6B.100d.txt",
     help="Location of pretrained embeddings"
 )
 optparser.add_option(
@@ -141,7 +141,7 @@ use_gpu = parameters['use_gpu']
 mapping_file = 'models/mapping.pkl'
 
 name = parameters['name']
-model_name = models_path + name #get_name(parameters)
+model_name = models_path + name  # get_name(parameters)
 tmp_model = model_name + '.tmp'
 
 
@@ -171,13 +171,14 @@ dev_sentences = loader.load_sentences(opts.dev, lower, zeros)
 test_sentences = loader.load_sentences(opts.test, lower, zeros)
 test_train_sentences = loader.load_sentences(opts.test_train, lower, zeros)
 
-update_tag_scheme(train_sentences, tag_scheme)
+update_tag_scheme(train_sentences, tag_scheme)  # 转成自己想要的标注格式
 update_tag_scheme(dev_sentences, tag_scheme)
 update_tag_scheme(test_sentences, tag_scheme)
 update_tag_scheme(test_train_sentences, tag_scheme)
 
 dico_words_train = word_mapping(train_sentences, lower)[0]
 
+# 把训练集中未出现但测试集中出现的单词加入词表
 dico_words, word_to_id, id_to_word = augment_with_pretrained(
         dico_words_train.copy(),
         parameters['pre_emb'],
@@ -186,24 +187,17 @@ dico_words, word_to_id, id_to_word = augment_with_pretrained(
         ) if not parameters['all_emb'] else None
     )
 
+# 获取单词到id的映射
 dico_chars, char_to_id, id_to_char = char_mapping(train_sentences)
 dico_tags, tag_to_id, id_to_tag = tag_mapping(train_sentences)
 
-train_data = prepare_dataset(
-    train_sentences, word_to_id, char_to_id, tag_to_id, lower
-)
-dev_data = prepare_dataset(
-    dev_sentences, word_to_id, char_to_id, tag_to_id, lower
-)
-test_data = prepare_dataset(
-    test_sentences, word_to_id, char_to_id, tag_to_id, lower
-)
-test_train_data = prepare_dataset(
-    test_train_sentences, word_to_id, char_to_id, tag_to_id, lower
-)
+# 将单词转为id的映射
+train_data = prepare_dataset(train_sentences, word_to_id, char_to_id, tag_to_id, lower)
+dev_data = prepare_dataset(dev_sentences, word_to_id, char_to_id, tag_to_id, lower)
+test_data = prepare_dataset(test_sentences, word_to_id, char_to_id, tag_to_id, lower)
+test_train_data = prepare_dataset(test_train_sentences, word_to_id, char_to_id, tag_to_id, lower)
 
-print("%i / %i / %i sentences in train / dev / test." % (
-    len(train_data), len(dev_data), len(test_data)))
+print("%i / %i / %i sentences in train / dev / test." % (len(train_data), len(dev_data), len(test_data)))
 
 all_word_embeds = {}
 for i, line in enumerate(codecs.open(opts.pre_emb, 'r', 'utf-8')):
@@ -213,6 +207,7 @@ for i, line in enumerate(codecs.open(opts.pre_emb, 'r', 'utf-8')):
 
 word_embeds = np.random.uniform(-np.sqrt(0.06), np.sqrt(0.06), (len(word_to_id), opts.word_dim))
 
+# 取pretrained embedding和随机初始化的embedding相结合
 for w in word_to_id:
     if w in all_word_embeds:
         word_embeds[word_to_id[w]] = all_word_embeds[w]
@@ -258,7 +253,7 @@ all_F = [[0, 0, 0]]
 plot_every = 10
 eval_every = 20
 count = 0
-vis = visdom.Visdom()
+# vis = visdom.Visdom()
 sys.stdout.flush()
 
 
@@ -340,6 +335,7 @@ def evaluating(model, datas, best_F):
         ))
     return best_F, new_F, save
 
+
 model.train(True)
 for epoch in range(1, 10001):
     for i, index in enumerate(np.random.permutation(len(train_data))):
@@ -355,7 +351,7 @@ for epoch in range(1, 10001):
 
         ######### char lstm
         if parameters['char_mode'] == 'LSTM':
-            chars2_sorted = sorted(chars2, key=lambda p: len(p), reverse=True)
+            chars2_sorted = sorted(chars2, key=lambda p: len(p), reverse=True)  # (num_words, char_len) 单词按长度排序
             d = {}
             for i, ci in enumerate(chars2):
                 for j, cj in enumerate(chars2_sorted):
@@ -364,8 +360,8 @@ for epoch in range(1, 10001):
                         continue
             chars2_length = [len(c) for c in chars2_sorted]
             char_maxl = max(chars2_length)
-            chars2_mask = np.zeros((len(chars2_sorted), char_maxl), dtype='int')
-            for i, c in enumerate(chars2_sorted):
+            chars2_mask = np.zeros((len(chars2_sorted), char_maxl), dtype='int')  # (num_words, char_len)
+            for i, c in enumerate(chars2_sorted):  # 有字母的地方为char_len，其他地方为0
                 chars2_mask[i, :chars2_length[i]] = c
             chars2_mask = Variable(torch.LongTensor(chars2_mask))
 
@@ -379,14 +375,13 @@ for epoch in range(1, 10001):
                 chars2_mask[i, :chars2_length[i]] = c
             chars2_mask = Variable(torch.LongTensor(chars2_mask))
 
-
         targets = torch.LongTensor(tags)
         caps = Variable(torch.LongTensor(data['caps']))
         if use_gpu:
             neg_log_likelihood = model.neg_log_likelihood(sentence_in.cuda(), targets.cuda(), chars2_mask.cuda(), caps.cuda(), chars2_length, d)
         else:
             neg_log_likelihood = model.neg_log_likelihood(sentence_in, targets, chars2_mask, caps, chars2_length, d)
-        loss += neg_log_likelihood.data[0] / len(data['words'])
+        loss += neg_log_likelihood.data.item() / len(data['words'])
         neg_log_likelihood.backward()
         torch.nn.utils.clip_grad_norm(model.parameters(), 5.0)
         optimizer.step()
@@ -400,12 +395,12 @@ for epoch in range(1, 10001):
             text = '<p>' + '</p><p>'.join([str(l) for l in losses[-9:]]) + '</p>'
             losswin = 'loss_' + name
             textwin = 'loss_text_' + name
-            vis.line(np.array(losses), X=np.array([plot_every*i for i in range(len(losses))]),
-                 win=losswin, opts={'title': losswin, 'legend': ['loss']})
-            vis.text(text, win=textwin, opts={'title': textwin})
+            # vis.line(np.array(losses), X=np.array([plot_every*i for i in range(len(losses))]),
+            #      win=losswin, opts={'title': losswin, 'legend': ['loss']})
+            # vis.text(text, win=textwin, opts={'title': textwin})
             loss = 0.0
 
-        if count % (eval_every) == 0 and count > (eval_every * 20) or \
+        if count % eval_every == 0 and count > (eval_every * 20) or \
                 count % (eval_every*4) == 0 and count < (eval_every * 20):
             model.train(False)
             best_train_F, new_train_F, _ = evaluating(model, test_train_data, best_train_F)
@@ -417,9 +412,9 @@ for epoch in range(1, 10001):
 
             all_F.append([new_train_F, new_dev_F, new_test_F])
             Fwin = 'F-score of {train, dev, test}_' + name
-            vis.line(np.array(all_F), win=Fwin,
-                 X=np.array([eval_every*i for i in range(len(all_F))]),
-                 opts={'title': Fwin, 'legend': ['train', 'dev', 'test']})
+            # vis.line(np.array(all_F), win=Fwin,
+            #      X=np.array([eval_every*i for i in range(len(all_F))]),
+            #      opts={'title': Fwin, 'legend': ['train', 'dev', 'test']})
             model.train(True)
 
         if count % len(train_data) == 0:
@@ -428,5 +423,5 @@ for epoch in range(1, 10001):
 
 print(time.time() - t)
 
-plt.plot(losses)
-plt.show()
+# plt.plot(losses)
+# plt.show()

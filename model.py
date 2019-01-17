@@ -1,7 +1,7 @@
 import torch
 import torch.autograd as autograd
 from torch.autograd import Variable
-from utils import *
+from utils import init_embedding, init_linear, init_lstm
 
 START_TAG = '<START>'
 STOP_TAG = '<STOP>'

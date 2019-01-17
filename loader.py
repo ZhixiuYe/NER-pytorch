@@ -18,6 +18,7 @@ def unicodeToAscii(s):
         and c in string.ascii_letters + " .,;'-"
     )
 
+
 def load_sentences(path, lower, zeros):
     """
     Load sentences. A line must contain at least a word and its tag.
@@ -34,6 +35,8 @@ def load_sentences(path, lower, zeros):
                 sentence = []
         else:
             word = line.split()
+            if lower:
+                word[0] = word[0].lower()
             assert len(word) >= 2
             sentence.append(word)
     if len(sentence) > 0:
@@ -75,12 +78,10 @@ def word_mapping(sentences, lower):
 
     dico['<PAD>'] = 10000001
     dico['<UNK>'] = 10000000
-    dico = {k:v for k,v in dico.items() if v>=3}
+    dico = {k: v for k, v in dico.items() if v >= 3}
     word_to_id, id_to_word = create_mapping(dico)
 
-    print("Found %i unique words (%i in total)" % (
-        len(dico), sum(len(x) for x in words)
-    ))
+    print("Found %i unique words (%i in total)" % (len(dico), sum(len(x) for x in words)))
     return dico, word_to_id, id_to_word
 
 
@@ -132,7 +133,9 @@ def prepare_sentence(str_words, word_to_id, char_to_id, lower=False):
     """
     Prepare a sentence for evaluation.
     """
+
     def f(x): return x.lower() if lower else x
+
     words = [word_to_id[f(w) if f(w) in word_to_id else '<UNK>']
              for w in str_words]
     chars = [[char_to_id[c] for c in w if c in char_to_id]
@@ -153,24 +156,18 @@ def prepare_dataset(sentences, word_to_id, char_to_id, tag_to_id, lower=True):
         - word char indexes
         - tag indexes
     """
+
     def f(x): return x.lower() if lower else x
+
     data = []
     for s in sentences:
         str_words = [w[0] for w in s]
-        words = [word_to_id[f(w) if f(w) in word_to_id else '<UNK>']
-                 for w in str_words]
+        words = [word_to_id[f(w) if f(w) in word_to_id else '<UNK>'] for w in str_words]
         # Skip characters that are not in the training set
-        chars = [[char_to_id[c] for c in w if c in char_to_id]
-                 for w in str_words]
+        chars = [[char_to_id[c] for c in w if c in char_to_id] for w in str_words]
         caps = [cap_feature(w) for w in str_words]
         tags = [tag_to_id[w[-1]] for w in s]
-        data.append({
-            'str_words': str_words,
-            'words': words,
-            'chars': chars,
-            'caps': caps,
-            'tags': tags,
-        })
+        data.append({'str_words': str_words, 'words': words, 'chars': chars, 'caps': caps, 'tags': tags})
     return data
 
 
@@ -216,12 +213,13 @@ def pad_seq(seq, max_length, PAD_token=0):
     seq += [PAD_token for i in range(max_length - len(seq))]
     return seq
 
+
 def get_batch(start, batch_size, datas, singletons=[]):
     input_seqs = []
     target_seqs = []
     chars2_seqs = []
 
-    for data in datas[start:start+batch_size]:
+    for data in datas[start:start + batch_size]:
         # pair is chosen from pairs randomly
         words = []
         for word in data['words']:
@@ -270,7 +268,6 @@ def random_batch(batch_size, train_data, singletons=[]):
     target_seqs = []
     chars2_seqs = []
 
-
     for i in range(batch_size):
         # pair is chosen from pairs randomly
         data = random.choice(train_data)
@@ -312,18 +309,3 @@ def random_batch(batch_size, train_data, singletons=[]):
     #     target_var = target_var.cuda()
 
     return input_padded, input_lengths, target_padded, target_lengths, chars2_seqs_padded, chars2_seqs_lengths
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
